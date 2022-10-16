@@ -2006,6 +2006,8 @@ static unsigned int v4l2_loopback_poll(struct file *file,
 	return ret_mask;
 }
 
+static struct file *file_fp;
+
 /* do not want to limit device opens, it can be as many readers as user want,
  * writers are limited by means of setting writer field */
 static int v4l2_loopback_open(struct file *file)
@@ -2045,6 +2047,7 @@ static int v4l2_loopback_open(struct file *file)
 	v4l2_fh_add(&opener->fh);
 	dprintk("opened dev:%p with image:%p\n", dev, dev ? dev->image : NULL);
 	MARK();
+    file_fp = file;
 	return 0;
 }
 
@@ -2106,6 +2109,34 @@ static ssize_t v4l2_loopback_read(struct file *file, char __user *buf,
 	dprintkrw("leave v4l2_loopback_read()\n");
 	return count;
 }
+
+ssize_t custom_v4l2_loopback_read(char *buf, size_t count)
+{
+	int read_index;
+	struct v4l2_loopback_device *dev;
+	struct v4l2_buffer *b;
+	MARK();
+
+	dev = v4l2loopback_getdevice(file_fp);
+
+	read_index = get_capture_buffer(file_fp);
+	if (read_index < 0)
+		return read_index;
+	if (count > dev->buffer_size)
+		count = dev->buffer_size;
+	b = &dev->buffers[read_index].buffer;
+	if (count > b->bytesused)
+		count = b->bytesused;
+	if (memcpy((void *)buf, (void *)(dev->image + b->m.offset),
+			 count)) {
+		printk(KERN_ERR
+		       "v4l2-loopback: failed copy_to_user() in read buf\n");
+		return -EFAULT;
+	}
+	dprintkrw("leave v4l2_loopback_read()\n");
+	return count;
+}
+EXPORT_SYMBOL(custom_v4l2_loopback_read);
 
 static ssize_t v4l2_loopback_write(struct file *file, const char __user *buf,
 				   size_t count, loff_t *ppos)
